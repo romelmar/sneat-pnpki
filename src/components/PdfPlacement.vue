@@ -77,12 +77,30 @@ import { markRaw, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch }
 
 /* ---------- props & emit ---------- */
 const props = defineProps({
-  src: { type: String, default: null },               // blob: or http(s) URL
-  file: { type: [File, Blob], default: null },        // preferred: File/Blob
-  modelValue: { type: Object, default: null },        // { page, llx, lly, w, h } (page 0-based)
+  src: { type: String, default: null },
+  file: { type: [File, Blob], default: null },
+  modelValue: { type: Object, default: null }, // { page, llx, lly, w, h, yTop? }
+  specimenUrl: { type: String, default: null },    // <- NEW (object URL of uploaded image)
+  signerName: { type: String, default: '' },       // <- NEW (for sample text)
+  showPnPkiText: { type: Boolean, default: true }, // <- NEW (toggle sample text)
 })
 
 const emit = defineEmits(['update:modelValue'])
+const specimenImg = shallowRef(null)
+
+
+// Load/unload the specimen image
+watch(() => props.specimenUrl, () => {
+  specimenImg.value = null
+  if (!props.specimenUrl) { drawOverlay() 
+
+    return }
+  const img = new Image()
+
+  img.onload = () => { specimenImg.value = img; drawOverlay() }
+  img.onerror = () => { specimenImg.value = null; drawOverlay() }
+  img.src = props.specimenUrl
+})
 
 /* ---------- PDF.js setup (match API + worker versions) ---------- */
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc
@@ -333,27 +351,125 @@ function drawOverlay(){
 
   ctx.clearRect(0, 0, ov.width, ov.height)
 
+  // While dragging: show a translucent guide + specimen preview
   if (drag.value.active){
     const r = normalizedRect(drag.value.x0, drag.value.y0, drag.value.x1, drag.value.y1)
 
-    ctx.fillStyle = 'rgba(31,111,235,0.15)'
-    ctx.strokeStyle = '#1f6feb'
-    ctx.lineWidth = 2
-    ctx.fillRect(r.x, r.y, r.w, r.h)
-    ctx.strokeRect(r.x, r.y, r.w, r.h)
-    
-    return
-  }
-  if (hasSelection.value){
-    const r = pdfPointsToCanvasRect(lastCoords.value)
-
+    // rectangle guide
     ctx.fillStyle = 'rgba(31,111,235,0.12)'
     ctx.strokeStyle = '#1f6feb'
     ctx.lineWidth = 2
     ctx.fillRect(r.x, r.y, r.w, r.h)
     ctx.strokeRect(r.x, r.y, r.w, r.h)
+
+    // specimen preview (semi-transparent while dragging)
+    drawSpecimen(ctx, r, { alpha: 0.85 })
+    
+    return
+  }
+  
+
+  // After selection: show the final specimen guide
+  if (hasSelection.value){
+    const r = pdfPointsToCanvasRect(lastCoords.value)
+
+    ctx.fillStyle = 'rgba(31,111,235,0.10)'
+    ctx.strokeStyle = '#1f6feb'
+    ctx.lineWidth = 2
+    ctx.fillRect(r.x, r.y, r.w, r.h)
+    ctx.strokeRect(r.x, r.y, r.w, r.h)
+
+    drawSpecimen(ctx, r, { alpha: 1.0 })
   }
 }
+
+function drawSpecimen(ctx, rect, { alpha = 1.0 } = {}){
+  if (!rect.w || !rect.h) return
+
+  // transparent background (overlay canvas is already transparent)
+  // Optional subtle border to mimic final appearance box:
+  ctx.save()
+  ctx.globalAlpha = alpha
+
+  const pad = Math.max(4, Math.floor(rect.h * 0.08))  // 8% padding
+  let cursorX = rect.x + pad
+  const contentTop = rect.y + pad
+  const contentH = Math.max(1, rect.h - pad * 2)
+  const contentW = Math.max(1, rect.w - pad * 2)
+
+  // 1) Optional image at left, scaled to box height
+  let imgW = 0
+  if (specimenImg.value){
+    const img = specimenImg.value
+    const targetH = contentH
+    const ratio = img.width / img.height
+
+    imgW = Math.min(contentW * 0.45, Math.floor(targetH * ratio)) // keep some room for text
+    if (imgW > 0){
+      const imgH = Math.floor(imgW / ratio)
+      const imgY = Math.floor(contentTop + (contentH - imgH) / 2)
+
+      ctx.drawImage(img, Math.floor(cursorX), imgY, imgW, imgH)
+      cursorX += imgW + pad
+    }
+  }
+
+  // 2) PNPKI-ish sample text on the right (if enabled)
+  if (props.showPnPkiText){
+    const textW = Math.max(1, rect.x + rect.w - pad - cursorX)
+    if (textW > 10){
+      const date = new Date()
+      const dateStr = date.toISOString().slice(0, 10)
+      const timeStr = date.toTimeString().slice(0, 8)
+      const line1 = 'Digitally signed by'
+      const line2 = props.signerName || '(unknown)'
+      const line3 = dateStr
+      const line4 = timeStr
+
+      // Scale text roughly with box height
+      const fontReg = Math.max(9, Math.floor(contentH * 0.22))
+      const fontBold = Math.max(10, Math.floor(contentH * 0.26))
+      const lineGap = Math.max(2, Math.floor(contentH * 0.06))
+
+      ctx.fillStyle = '#111'
+      let y = contentTop + fontReg + Math.floor(lineGap * 0.5)
+
+      ctx.font = `${fontReg}px sans-serif`
+      fillClampedText(ctx, line1, cursorX, y, textW); y += fontReg + lineGap
+
+      ctx.font = `bold ${fontBold}px sans-serif`
+      fillClampedText(ctx, line2, cursorX, y, textW); y += fontBold + lineGap
+
+      ctx.font = `${fontReg}px sans-serif`
+      fillClampedText(ctx, line3, cursorX, y, textW); y += fontReg + lineGap
+      fillClampedText(ctx, line4, cursorX, y, textW)
+    }
+  }
+
+  // Optional light border inside
+  ctx.strokeStyle = 'rgba(0,0,0,0.10)'
+  ctx.lineWidth = 1
+  ctx.strokeRect(rect.x + 0.5, rect.y + 0.5, rect.w - 1, rect.h - 1)
+
+  ctx.restore()
+}
+
+// Truncate text with ellipsis if it overflows a given width
+function fillClampedText(ctx, text, x, y, maxW){
+  if (!text) return
+  if (ctx.measureText(text).width <= maxW){
+    ctx.fillText(text, x, y)
+    
+    return
+  }
+  let t = text
+  while (t.length > 1 && ctx.measureText(t + '…').width > maxW){
+    t = t.slice(0, -1)
+  }
+  ctx.fillText(t + '…', x, y)
+}
+
+
 function drawModelValueRect(mv){
   hasSelection.value = true
   lastCoords.value = mv

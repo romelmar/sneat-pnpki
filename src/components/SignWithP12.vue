@@ -67,6 +67,9 @@
         :file="pdfFile"
         :src="pdfUrl"
         :page="page" 
+        :specimen-url="previewImgUrl"             
+        :signer-name="signerRef?.subjectCN || ''"   
+        :show-pnpki-text="true"                     
       />
 
       <!-- fallback manual fields (optional) -->
@@ -206,7 +209,23 @@ function onPickPdf(e){
   pdfUrl.value  = URL.createObjectURL(f) // optional viewer URL
 }
 
-function onPickImg(e){ image.value = e.target.files?.[0] || null }
+const previewImgUrl = ref(null)
+
+function onPickImg(e){
+  const f = e.target.files?.[0] || null
+
+  image.value = f
+  if (previewImgUrl.value) try { URL.revokeObjectURL(previewImgUrl.value) } catch {}
+  previewImgUrl.value = f ? URL.createObjectURL(f) : null
+}
+onBeforeUnmount(() => {
+  if (previewImgUrl.value) try { URL.revokeObjectURL(previewImgUrl.value) } catch {}
+})
+
+
+
+
+
 function onPickP12(e){ p12File.value = e.target.files?.[0] || null }
 
 async function onLoadP12(){
@@ -247,13 +266,11 @@ async function onPrepareAndSign(){
       return
     }
 
-    const LLY = Number.isFinite(coords.value.lly)
-      ? coords.value.lly
-      : (coords.value.pageHeight - coords.value.yTop - coords.value.h)
+
 
     fd.append('page', String(coords.value.page))
     fd.append('llx',  String(coords.value.llx))
-    fd.append('lly',  String(LLY))
+    fd.append('lly',  String(coords.value.yTop))
     fd.append('w',    String(coords.value.w))
     fd.append('h',    String(coords.value.h))
     fd.append('reason', reason.value)
