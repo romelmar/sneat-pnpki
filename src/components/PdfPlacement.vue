@@ -71,25 +71,48 @@
 </template>
 
 <script setup>
-import * as pdfjsLib from 'pdfjs-dist' // v5 API (ESM)
-import workerSrc from 'pdfjs-dist/build/pdf.worker.mjs?url' // v5 worker as URL
+import * as pdfjsLib from 'pdfjs-dist'
+import workerSrc from 'pdfjs-dist/build/pdf.worker.mjs?url'
 import { markRaw, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 
-/* ---------- props & emit ---------- */
+/* ---------- props & emits ---------- */
 const props = defineProps({
-  src: { type: String, default: null },
-  file: { type: [File, Blob], default: null },
-  modelValue: { type: Object, default: null }, // { page, llx, lly, w, h, yTop? }
-  specimenUrl: { type: String, default: null },    // <- NEW (object URL of uploaded image)
-  signerName: { type: String, default: '' },       // <- NEW (for sample text)
-  showPnPkiText: { type: Boolean, default: true }, // <- NEW (toggle sample text)
+  src: { type: String, default: null },               // blob: or http(s) URL
+  file: { type: [File, Blob], default: null },        // preferred: File/Blob
+  modelValue: { type: Object, default: null },        // { page,llx,lly,w,h }
+  specimenUrl: { type: String, default: null },       // guide image
+  signerName: { type: String, default: '' },          // CN for text
+  showPnPkiText: { type: Boolean, default: true },    // toggle text in guide
 })
 
 const emit = defineEmits(['update:modelValue'])
+
+/* ---------- PDF.js setup ---------- */
+pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc
+
+const { getDocument } = pdfjsLib
+
+/* ---------- refs / state ---------- */
+const pdfCanvas = ref(null)
+const overlay = ref(null)
+const stageEl = ref(null)
+
+const pdf = shallowRef(null)
+const objectUrl = ref(null)
+
+const page = ref(1)                 // 1-based for UI
+const numPages = ref(null)
+const scale = ref(1.0)
+const baseViewport = ref(null)      // viewport at scale=1 (points)
+const rendering = ref(false)
+
+const hasSelection = ref(false)
+const drag = ref({ active: false, x0: 0, y0: 0, x1: 0, y1: 0 })
+const lastCoords = ref({ page: 0, llx: 0, lly: 0, w: 0, h: 0, yTop: 0, pageHeight: 0 })
+
+/* specimen image cache */
 const specimenImg = shallowRef(null)
 
-
-// Load/unload the specimen image
 watch(() => props.specimenUrl, () => {
   specimenImg.value = null
   if (!props.specimenUrl) { drawOverlay() 
@@ -102,31 +125,7 @@ watch(() => props.specimenUrl, () => {
   img.src = props.specimenUrl
 })
 
-/* ---------- PDF.js setup (match API + worker versions) ---------- */
-pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc
-
-const { getDocument } = pdfjsLib
-
-/* ---------- refs / state ---------- */
-const pdfCanvas = ref(null)
-const overlay = ref(null)
-const stageEl = ref(null)
-
-const pdf = shallowRef(null)        // PDFDocumentProxy (kept raw)
-const objectUrl = ref(null)         // for File blobs (revoke on change)
-
-const page = ref(1)                 // 1-based for UI
-const numPages = ref(null)
-const scale = ref(1.0)
-const baseViewport = ref(null)      // viewport at scale=1 (for point math)
-const rendering = ref(false)
-
-const hasSelection = ref(false)
-const drag = ref({ active: false, x0: 0, y0: 0, x1: 0, y1: 0 })
-const lastCoords = ref({ page: 0, llx: 0, lly: 0, w: 0, h: 0 })
-
-
-/* ---------- inline styles (objects) ---------- */
+/* ---------- styles ---------- */
 const wrap = {
   width: '100%', maxWidth: '980px', margin: '8px auto',
   fontFamily: '-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif',
@@ -144,47 +143,35 @@ const btn = {
 
 const stageStyle = {
   position: 'relative', width: '100%', overflow: 'auto', background: '#fff',
-  border: '1px solid #e5e7eb', borderRadius: '8px',
-  minHeight: '200px',
+  border: '1px solid #e5e7eb', borderRadius: '8px', minHeight: '200px',
 }
 
 const overlayCss = { position: 'absolute', left: 0, top: 0, cursor: 'crosshair' }
 
-/* ---------- loading & rendering ---------- */
-async function loadPdf () {
-  // revoke old blob URL
-  if (objectUrl.value) {
-    try { URL.revokeObjectURL(objectUrl.value) } catch {}
-    objectUrl.value = null
-  }
+/* ---------- constants / helpers ---------- */
+const PT_TO_CSSPX = 96 / 72 // px per pt @96dpi
+function pt2px(pt) { return pt * PT_TO_CSSPX * scale.value }
 
-  // decide source
+/* ---------- load & render ---------- */
+async function loadPdf () {
+  if (objectUrl.value) { try { URL.revokeObjectURL(objectUrl.value) } catch {}; objectUrl.value = null }
+
   let src = props.src || null
-  if (!src && props.file) {
-    objectUrl.value = URL.createObjectURL(props.file)
-    src = objectUrl.value
-  }
+  if (!src && props.file) { objectUrl.value = URL.createObjectURL(props.file); src = objectUrl.value }
   if (!src) return
 
   await openPdf(src)
 }
 
 async function openPdf (src) {
-  // destroy old doc if any
-  if (pdf.value) {
-    try { await pdf.value.destroy() } catch {}
-    pdf.value = null
-  }
-
+  if (pdf.value) { try { await pdf.value.destroy() } catch {}; pdf.value = null }
   numPages.value = null
 
-  // derive starting page from v-model (convert 0-based to 1-based)
   page.value = Math.max(1, (props.modelValue?.page || 0) + 1)
 
   const loadingTask = getDocument({ url: src })
   const doc = await loadingTask.promise
 
-  // avoid Vue proxy on private-field objects
   pdf.value = markRaw(doc)
   numPages.value = doc.numPages
   if (page.value > numPages.value) page.value = numPages.value
@@ -197,13 +184,12 @@ async function renderCurrentPage (fitWidth = false) {
   if (!doc) return
   rendering.value = true
   try {
-    const p   = await pdf.value.getPage(page.value)
+    const p   = await doc.getPage(page.value)
     const rot = (p.rotate || 0) % 360
-    const v1  = p.getViewport({ scale: 1.0, rotation: rot }) // base viewport (points)
+    const v1  = p.getViewport({ scale: 1.0, rotation: rot }) // base viewport in points
 
     baseViewport.value = v1
 
-    // auto-fit width (once) or on navigation
     let s = scale.value
     if (fitWidth) {
       const containerW = (stageEl.value?.clientWidth || 900) - 2
@@ -216,6 +202,7 @@ async function renderCurrentPage (fitWidth = false) {
     const canvas = pdfCanvas.value
     const ctx = canvas.getContext('2d', { alpha: false })
 
+    // simple CSS pixel canvas (keeps overlay math 1:1)
     canvas.width = Math.ceil(vp.width)
     canvas.height = Math.ceil(vp.height)
     canvas.style.width = vp.width + 'px'
@@ -232,6 +219,8 @@ async function renderCurrentPage (fitWidth = false) {
 
     await p.render({ canvasContext: ctx, viewport: vp }).promise
     drawOverlay()
+
+    // if parent passed a modelValue for this page, draw it
     if (props.modelValue && props.modelValue.page === (page.value - 1)) {
       drawModelValueRect(props.modelValue)
     }
@@ -272,9 +261,8 @@ function onUp(){
   emit('update:modelValue', coords)
   drawOverlay()
 }
-function onLeave(){
-  if (drag.value.active){ drag.value.active = false; drawOverlay() }
-}
+function onLeave(){ if (drag.value.active){ drag.value.active = false; drawOverlay() } }
+
 function clearSelection(){
   hasSelection.value = false
   drag.value.active = false
@@ -282,7 +270,7 @@ function clearSelection(){
   emit('update:modelValue', null)
 }
 
-/* ---------- math ---------- */
+/* ---------- math & conversion ---------- */
 function evtToLocal(e){
   if ('offsetX' in e) return { x: e.offsetX, y: e.offsetY }
   const r = overlay.value.getBoundingClientRect()
@@ -296,193 +284,195 @@ function normalizedRect(x0, y0, x1, y1){
   return { x, y, w, h }
 }
 
-// Put this near your other constants
-const CSS_UNITS = 96 / 72 // css px per point
-
-
 function rectToPdfPoints({ x, y, w, h }) {
   const s = scale.value
   const x1v = x / s, y1v = y / s
   const x2v = (x + w) / s, y2v = (y + h) / s
 
-  // Convert viewport coords -> PDF user space (handles rotation properly)
+  // viewport coords -> PDF user space (handles rotation)
   const [llx, lly] = baseViewport.value.convertToPdfPoint(x1v, y2v)   // lower-left
   const [urx, ury] = baseViewport.value.convertToPdfPoint(x2v, y1v)   // upper-right
 
   const width  = urx - llx
   const height = ury - lly
-
-  // Top-origin helper values (in PDF points)
   const pageHeight = baseViewport.value.height
-  const yTop = pageHeight - (lly + height)
+  const yTop = pageHeight - (lly + height) // top-origin helper (PDF pts)
 
-  return {
-    page: page.value - 1, // 0-based for backend
-    llx, lly, w: width, h: height,
-    yTop, pageHeight,
-  }
+  return { page: page.value - 1, llx, lly, w: width, h: height, yTop, pageHeight }
 }
 
-
-
-function pdfToUiTop({ llx, lly, w, h }) {
-  const pageH = baseViewport.value.height // PDF points
-  // top-left style Y (0 at top):
-  const yTop = pageH - (lly + h)
-  
-  return { x: llx, yTop, w, h }
-}
-
-// PDF points -> canvas rectangle (px at current scale)
 function pdfPointsToCanvasRect({ llx, lly, w, h }) {
   const s = scale.value
-  const [x1v, y1v] = baseViewport.value.convertToViewportPoint(llx,     lly + h) // top-left
-  const [x2v, y2v] = baseViewport.value.convertToViewportPoint(llx + w, lly)     // bottom-right
+
+  // top-left and bottom-right in viewport
+  const [x1v, y1v] = baseViewport.value.convertToViewportPoint(llx,     lly + h)
+  const [x2v, y2v] = baseViewport.value.convertToViewportPoint(llx + w, lly)
   
   return { x: x1v * s, y: y1v * s, w: (x2v - x1v) * s, h: (y2v - y1v) * s }
 }
 
-
 /* ---------- overlay drawing ---------- */
-function drawOverlay(){
+function drawOverlay() {
   const ov = overlay.value
   if (!ov) return
   const ctx = ov.getContext('2d')
 
   ctx.clearRect(0, 0, ov.width, ov.height)
 
-  // While dragging: show a translucent guide + specimen preview
-  if (drag.value.active){
+  // If dragging, show the SAME guide preview in the live rectangle
+  if (drag.value.active) {
     const r = normalizedRect(drag.value.x0, drag.value.y0, drag.value.x1, drag.value.y1)
 
-    // rectangle guide
-    ctx.fillStyle = 'rgba(31,111,235,0.12)'
-    ctx.strokeStyle = '#1f6feb'
-    ctx.lineWidth = 2
-    ctx.fillRect(r.x, r.y, r.w, r.h)
-    ctx.strokeRect(r.x, r.y, r.w, r.h)
+    // draw background + border
+    drawGuide(ctx, r)
 
-    // specimen preview (semi-transparent while dragging)
-    drawSpecimen(ctx, r, { alpha: 0.85 })
-    
+    // draw specimen + (optional) PNPKI text while dragging
+    drawPnPkiGuide(ctx, r, {
+      showText: props.showPnPkiText !== false,
+      signerName: props.signerName || '(unknown)',
+      specimenImg: specimenImg.value, // will render once loaded
+    })
+
     return
   }
-  
 
-  // After selection: show the final specimen guide
-  if (hasSelection.value){
-    const r = pdfPointsToCanvasRect(lastCoords.value)
+  // After selection is finished, use the stored coords
+  if (hasSelection.value) {
+    const rect = pdfPointsToCanvasRect(lastCoords.value)
 
-    ctx.fillStyle = 'rgba(31,111,235,0.10)'
-    ctx.strokeStyle = '#1f6feb'
-    ctx.lineWidth = 2
-    ctx.fillRect(r.x, r.y, r.w, r.h)
-    ctx.strokeRect(r.x, r.y, r.w, r.h)
-
-    drawSpecimen(ctx, r, { alpha: 1.0 })
+    drawGuide(ctx, rect)
+    drawPnPkiGuide(ctx, rect, {
+      showText: props.showPnPkiText !== false,
+      signerName: props.signerName || '(unknown)',
+      specimenImg: specimenImg.value,
+    })
   }
 }
 
-function drawSpecimen(ctx, rect, { alpha = 1.0 } = {}){
-  if (!rect.w || !rect.h) return
-
-  // transparent background (overlay canvas is already transparent)
-  // Optional subtle border to mimic final appearance box:
-  ctx.save()
-  ctx.globalAlpha = alpha
-
-  const pad = Math.max(4, Math.floor(rect.h * 0.08))  // 8% padding
-  let cursorX = rect.x + pad
-  const contentTop = rect.y + pad
-  const contentH = Math.max(1, rect.h - pad * 2)
-  const contentW = Math.max(1, rect.w - pad * 2)
-
-  // 1) Optional image at left, scaled to box height
-  let imgW = 0
-  if (specimenImg.value){
-    const img = specimenImg.value
-    const targetH = contentH
-    const ratio = img.width / img.height
-
-    imgW = Math.min(contentW * 0.45, Math.floor(targetH * ratio)) // keep some room for text
-    if (imgW > 0){
-      const imgH = Math.floor(imgW / ratio)
-      const imgY = Math.floor(contentTop + (contentH - imgH) / 2)
-
-      ctx.drawImage(img, Math.floor(cursorX), imgY, imgW, imgH)
-      cursorX += imgW + pad
-    }
-  }
-
-  // 2) PNPKI-ish sample text on the right (if enabled)
-  if (props.showPnPkiText){
-    const textW = Math.max(1, rect.x + rect.w - pad - cursorX)
-    if (textW > 10){
-      const date = new Date()
-      const dateStr = date.toISOString().slice(0, 10)
-      const timeStr = date.toTimeString().slice(0, 8)
-      const line1 = 'Digitally signed by'
-      const line2 = props.signerName || '(unknown)'
-      const line3 = dateStr
-      const line4 = timeStr
-
-      // Scale text roughly with box height
-      const fontReg = Math.max(9, Math.floor(contentH * 0.22))
-      const fontBold = Math.max(10, Math.floor(contentH * 0.26))
-      const lineGap = Math.max(2, Math.floor(contentH * 0.06))
-
-      ctx.fillStyle = '#111'
-      let y = contentTop + fontReg + Math.floor(lineGap * 0.5)
-
-      ctx.font = `${fontReg}px sans-serif`
-      fillClampedText(ctx, line1, cursorX, y, textW); y += fontReg + lineGap
-
-      ctx.font = `bold ${fontBold}px sans-serif`
-      fillClampedText(ctx, line2, cursorX, y, textW); y += fontBold + lineGap
-
-      ctx.font = `${fontReg}px sans-serif`
-      fillClampedText(ctx, line3, cursorX, y, textW); y += fontReg + lineGap
-      fillClampedText(ctx, line4, cursorX, y, textW)
-    }
-  }
-
-  // Optional light border inside
-  ctx.strokeStyle = 'rgba(0,0,0,0.10)'
-  ctx.lineWidth = 1
-  ctx.strokeRect(rect.x + 0.5, rect.y + 0.5, rect.w - 1, rect.h - 1)
-
-  ctx.restore()
+function drawGuide (ctx, r) {
+  ctx.fillStyle = 'rgba(31,111,235,0.12)'
+  ctx.strokeStyle = '#1f6feb'
+  ctx.lineWidth = 2
+  ctx.fillRect(r.x, r.y, r.w, r.h)
+  ctx.strokeRect(r.x, r.y, r.w, r.h)
 }
 
-// Truncate text with ellipsis if it overflows a given width
-function fillClampedText(ctx, text, x, y, maxW){
+/* text clamping (never use fillText's 4th arg) */
+function drawLineClamped(ctx, text, x, yBaseline, maxWidthPx) {
   if (!text) return
-  if (ctx.measureText(text).width <= maxW){
-    ctx.fillText(text, x, y)
+  if (ctx.measureText(text).width <= maxWidthPx) { ctx.fillText(text, x, yBaseline) 
+
+    return }
+  const ell = '…'
+  const ellW = ctx.measureText(ell).width
+  let lo = 0, hi = text.length
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    const slice = text.slice(0, mid)
+    if (ctx.measureText(slice).width + ellW <= maxWidthPx) lo = mid + 1
+    else hi = mid
+  }
+  const fitted = text.slice(0, Math.max(0, lo - 1)) + ell
+
+  ctx.fillText(fitted, x, yBaseline)
+}
+
+/**
+ * Draw specimen + (optional) PNPKI text at point-accurate sizes:
+ *   padding: 6pt, top: 12pt, gap: 2pt, fonts: 8pt regular, 10pt bold.
+ */
+function drawPnPkiGuide(ctx, rectCanvasPx, opts) {
+  const { x, y, w, h } = rectCanvasPx
+  const showText   = !!opts.showText
+  const signerName = opts.signerName || '(unknown)'
+  const specimen   = opts.specimenImg || null
+
+  // background + border
+  ctx.fillStyle = 'rgba(31,111,235,0.12)'
+  ctx.strokeStyle = '#1f6feb'
+  ctx.lineWidth = 2
+  ctx.fillRect(x, y, w, h)
+  ctx.strokeRect(x, y, w, h)
+
+  // padding
+  const padPx = Math.round(pt2px(6))
+  let textStartX = x + padPx
+
+  // specimen image (left) scaled to fit height
+  if (specimen && specimen.complete) {
+    const imgH = Math.max(1, h - padPx * 2)
+    const imgW = Math.round(specimen.naturalWidth * (imgH / specimen.naturalHeight))
+
+    ctx.drawImage(specimen, x + padPx, y + padPx, imgW, imgH)
+    textStartX += imgW + padPx
+  }
+
+  if (!showText) return
+
+  // font sizes (px) from points
+  const regPx  = Math.round(pt2px(8))
+  const boldPx = Math.round(pt2px(10))
+  const gapPx  = Math.round(pt2px(2))
+  const topPad = Math.round(pt2px(12))
+
+  ctx.fillStyle = '#000'
+  ctx.textBaseline = 'alphabetic' // we compute baseline via ascent
+
+  const maxTextW = Math.max(0, x + w - padPx - textStartX)
+
+  const now = new Date()
+  const pad2 = n => (n < 10 ? '0' + n : '' + n)
+  const line1 = 'Digitally signed by'
+  const line2 = signerName
+  const line3 = `${now.getFullYear()}-${pad2(now.getMonth()+1)}-${pad2(now.getDate())}`
+  const line4 = `${pad2(now.getHours())}:${pad2(now.getMinutes())}:${pad2(now.getSeconds())}`
+
+  let yCursor = y + topPad
+
+  const setFontAndGetMetrics = (px, bold=false) => {
+    ctx.font = `${bold ? 'bold ' : ''}${px}px Arial, "Helvetica Neue", Helvetica, sans-serif`
+
+    const m = ctx.measureText('Mg')
+    const ascent  = (m.actualBoundingBoxAscent ?? px * 0.8)
+    const descent = (m.actualBoundingBoxDescent ?? px * 0.2)
     
-    return
+    return { ascent, lineH: ascent + descent }
   }
-  let t = text
-  while (t.length > 1 && ctx.measureText(t + '…').width > maxW){
-    t = t.slice(0, -1)
+
+  { // line 1
+    const { ascent, lineH } = setFontAndGetMetrics(regPx, false)
+
+    drawLineClamped(ctx, line1, textStartX, yCursor + ascent, maxTextW)
+    yCursor += lineH + gapPx
   }
-  ctx.fillText(t + '…', x, y)
+  { // line 2 (bold)
+    const { ascent, lineH } = setFontAndGetMetrics(boldPx, true)
+
+    drawLineClamped(ctx, line2, textStartX, yCursor + ascent, maxTextW)
+    yCursor += lineH + gapPx
+  }
+  { // line 3
+    const { ascent, lineH } = setFontAndGetMetrics(regPx, false)
+
+    drawLineClamped(ctx, line3, textStartX, yCursor + ascent, maxTextW)
+    yCursor += lineH + gapPx
+  }
+  { // line 4
+    const { ascent } = setFontAndGetMetrics(regPx, false)
+
+    drawLineClamped(ctx, line4, textStartX, yCursor + ascent, maxTextW)
+  }
 }
 
-
-function drawModelValueRect(mv){
-  hasSelection.value = true
-  lastCoords.value = mv
-  drawOverlay()
-}
-
-/* ---------- lifecycle ---------- */
+/* ---------- lifecycle & watchers ---------- */
 onMounted(loadPdf)
 onBeforeUnmount(async () => {
   if (objectUrl.value) { try { URL.revokeObjectURL(objectUrl.value) } catch {} }
   if (pdf.value) { try { await pdf.value.destroy() } catch {} }
 })
+
 watch(() => [props.src, props.file], loadPdf)
+
 watch(() => props.modelValue, async nv => {
   if (!pdf.value || rendering.value) return
   if (!nv) { clearSelection() 
@@ -499,4 +489,8 @@ watch(() => props.modelValue, async nv => {
     drawOverlay()
   }
 })
+
+// redraw guide when these change
+watch(() => [props.specimenUrl, props.signerName, props.showPnPkiText], () => drawOverlay())
+watch(() => scale.value, () => drawOverlay())
 </script>

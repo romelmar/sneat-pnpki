@@ -1,9 +1,9 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
-import { useTheme } from 'vuetify'
+import api from '@/plugins/axiosTest'
 import illustrationJohnDark from '@images/cards/illustration-john-dark.png'
 import illustrationJohnLight from '@images/cards/illustration-john-light.png'
-import api from '@/plugins/axios'
+import { computed, onMounted, ref } from 'vue'
+import { useTheme } from 'vuetify'
 
 // Vuetify theme image switcher
 const { global } = useTheme()
@@ -17,6 +17,7 @@ const showModal = ref(false)
 // Fetch items from API
 const fetchItems = async () => {
   const res = await api.get('/items')
+
   items.value = res.data
 }
 
@@ -43,13 +44,13 @@ const saveItem = async () => {
 }
 
 // Edit existing item
-const editItem = (item) => {
+const editItem = item => {
   form.value = { ...item }
   showModal.value = true
 }
 
 // Delete item
-const deleteItem = async (id) => {
+const deleteItem = async id => {
   await api.delete(`/items/${id}`)
   await fetchItems()
 }
@@ -59,44 +60,79 @@ onMounted(fetchItems)
 </script>
 
 <template>
-    <div>
-      <VBtn @click="openModal">Add Item</VBtn>
+  <div>
+    <VBtn @click="openModal">
+      Add Item
+    </VBtn>
   
-      <VTable class="mt-4">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Quantity</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="item in items" :key="item.id">
-            <td>{{ item.name }}</td>
-            <td>{{ item.quantity }}</td>
-            <td>
-              <VBtn icon @click="editItem(item)">✏️</VBtn>
-              <VBtn icon @click="deleteItem(item.id)">🗑️</VBtn>
-            </td>
-          </tr>
-        </tbody>
-      </VTable>
+    <VTable class="mt-4">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Quantity</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr
+          v-for="item in items"
+          :key="item.id"
+        >
+          <td>{{ item.name }}</td>
+          <td>{{ item.quantity }}</td>
+          <td>
+            <VBtn
+              icon
+              @click="editItem(item)"
+            >
+              ✏️
+            </VBtn>
+            <VBtn
+              icon
+              @click="deleteItem(item.id)"
+            >
+              🗑️
+            </VBtn>
+          </td>
+        </tr>
+      </tbody>
+    </VTable>
   
-      <VDialog v-model="showModal" max-width="500px">
-        <VCard>
-          <VCardTitle>{{ form.id ? 'Edit' : 'Add' }} Item</VCardTitle>
-          <VCardText>
-            <VTextField label="Name" v-model="form.name" />
-            <VTextField label="Quantity" v-model="form.quantity" type="number" />
-          </VCardText>
-          <VCardActions>
-            <VBtn color="primary" @click="saveItem">Save</VBtn>
-            <VBtn text @click="closeModal">Cancel</VBtn>
-          </VCardActions>
-        </VCard>
-      </VDialog>
-    </div>
-  </template>
+    <VDialog
+      v-model="showModal"
+      max-width="500px"
+    >
+      <VCard>
+        <VCardTitle>{{ form.id ? 'Edit' : 'Add' }} Item</VCardTitle>
+        <VCardText>
+          <VTextField
+            v-model="form.name"
+            label="Name"
+          />
+          <VTextField
+            v-model="form.quantity"
+            label="Quantity"
+            type="number"
+          />
+        </VCardText>
+        <VCardActions>
+          <VBtn
+            color="primary"
+            @click="saveItem"
+          >
+            Save
+          </VBtn>
+          <VBtn
+            text
+            @click="closeModal"
+          >
+            Cancel
+          </VBtn>
+        </VCardActions>
+      </VCard>
+    </VDialog>
+  </div>
+</template>
   
   
   

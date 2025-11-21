@@ -61,15 +61,24 @@
         Drag to draw a rectangle where the signature box should appear.
       </div>
 
+      <!-- add in your template, e.g. under Step 3 heading -->
+      <label style="display: flex;align-items: center;margin: 8px 0;gap: 8px;">
+        <input
+          v-model="showPnPkiText"
+          type="checkbox"
+        >
+        Show PNPKI description in guide
+      </label>
+
       <PdfPlacement
         v-if="pdfFile || pdfUrl"
         v-model="coords"
         :file="pdfFile"
         :src="pdfUrl"
-        :page="page" 
-        :specimen-url="previewImgUrl"             
-        :signer-name="signerRef?.subjectCN || ''"   
-        :show-pnpki-text="true"                     
+        :page="page"
+        :specimen-url="specimenUrl" 
+        :signer-name="signerRef?.subjectCN || ''"
+        :show-pn-pki-text="showPnPkiText"   
       />
 
       <!-- fallback manual fields (optional) -->
@@ -177,6 +186,9 @@ import forge from 'node-forge' // or use window.forge via CDN
 import { defineComponent, ref } from 'vue'
 import PdfPlacement from './PdfPlacement.vue'
 
+const showPnPkiText = ref(true) // default; you can set false if you like
+const specimenUrl = ref(null)
+
 /* ---------- state ---------- */
 const pdfFile   = ref(null)   // File object used for viewer & uploading
 const pdfUrl    = ref('')     // blob URL for viewer (optional)
@@ -211,12 +223,13 @@ function onPickPdf(e){
 
 const previewImgUrl = ref(null)
 
-function onPickImg(e){
+function onPickImg(e) {
   const f = e.target.files?.[0] || null
-
+  if (specimenUrl.value) {
+    try { URL.revokeObjectURL(specimenUrl.value) } catch {}
+  }
   image.value = f
-  if (previewImgUrl.value) try { URL.revokeObjectURL(previewImgUrl.value) } catch {}
-  previewImgUrl.value = f ? URL.createObjectURL(f) : null
+  specimenUrl.value = f ? URL.createObjectURL(f) : null
 }
 onBeforeUnmount(() => {
   if (previewImgUrl.value) try { URL.revokeObjectURL(previewImgUrl.value) } catch {}
@@ -275,7 +288,9 @@ async function onPrepareAndSign(){
     fd.append('h',    String(coords.value.h))
     fd.append('reason', reason.value)
     fd.append('location', location.value)
-    fd.append('pnpki', 'true')
+
+    // fd.append('pnpki', 'true')
+    fd.append('pnpki', showPnPkiText.value ? 'true' : 'false')
     fd.append('signer', signerRef.value.subjectCN)
     fd.append('tz', 'Asia/Manila')
 

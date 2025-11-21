@@ -1,10 +1,10 @@
 <script setup>
-import { ref } from 'vue'
-import { useRouter } from 'vue-router'
-import api from '@/plugins/axios'
+import api from '@/plugins/axiosTest'
 import { useAuthStore } from '@/stores/auth'
 import AuthProvider from '@/views/pages/authentication/AuthProvider.vue'
 import logo from '@images/logo.svg?raw'
+import { ref } from 'vue'
+import { useRouter } from 'vue-router'
 
 const form = ref({
   email: '',
@@ -20,10 +20,12 @@ const auth = useAuthStore()
 const login = async () => {
   try {
     console.log('Logging in with:', form.value.email, form.value.password)
+
     const response = await api.post('/login', {
       email: form.value.email,
       password: form.value.password,
     })
+
     auth.setToken(response.data.token)
     auth.setUser(response.data.user)
     router.push('/') // Redirect after login
@@ -33,22 +35,19 @@ const login = async () => {
 }
 </script>
 
-<style scoped>
-.login-container {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  min-height: 100vh;
-}
-</style>
-
 <template>
   <div class="auth-wrapper d-flex align-center justify-center pa-4">
-    <VCard class="auth-card pa-4 pt-7" max-width="448">
+    <VCard
+      class="auth-card pa-4 pt-7"
+      max-width="448"
+    >
       <VCardItem class="justify-center">
         <template #prepend>
           <div class="d-flex">
-            <div class="d-flex text-primary" v-html="logo" />
+            <div
+              class="d-flex text-primary"
+              v-html="logo"
+            />
           </div>
         </template>
 
@@ -98,33 +97,51 @@ const login = async () => {
                 v-model="form.remember"
                 label="Remember me"
               />
-              <RouterLink class="text-primary ms-2 mb-1" to="javascript:void(0)">
+              <RouterLink
+                class="text-primary ms-2 mb-1"
+                to="javascript:void(0)"
+              >
                 Forgot Password?
               </RouterLink>
             </div>
 
             <!-- login button -->
-            <VBtn block type="submit">
+            <VBtn
+              block
+              type="submit"
+            >
               Login
             </VBtn>
           </VRow>
 
           <!-- create account -->
-          <VCol cols="12" class="text-center text-base">
+          <VCol
+            cols="12"
+            class="text-center text-base"
+          >
             <span>New on our platform?</span>
-            <RouterLink class="text-primary ms-2" to="/register">
+            <RouterLink
+              class="text-primary ms-2"
+              to="/register"
+            >
               Create an account
             </RouterLink>
           </VCol>
 
-          <VCol cols="12" class="d-flex align-center">
+          <VCol
+            cols="12"
+            class="d-flex align-center"
+          >
             <VDivider />
             <span class="mx-4">or</span>
             <VDivider />
           </VCol>
 
           <!-- auth providers -->
-          <VCol cols="12" class="text-center">
+          <VCol
+            cols="12"
+            class="text-center"
+          >
             <AuthProvider />
           </VCol>
         </VForm>
@@ -132,6 +149,15 @@ const login = async () => {
     </VCard>
   </div>
 </template>
+
+<style scoped>
+.login-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-block-size: 100vh;
+}
+</style>
 
 <style lang="scss">
 @use "@core/scss/template/pages/page-auth.scss";

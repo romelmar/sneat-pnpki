@@ -1,4 +1,3 @@
-import { useAuthStore } from '@/stores/auth'; // 👈 make sure this path is correct
 import { createRouter, createWebHistory } from 'vue-router'
 
 const router = createRouter({
@@ -33,19 +32,19 @@ const router = createRouter({
 })
 
 // 🔐 Auth guard
-router.beforeEach((to, from, next) => {
-  const auth = useAuthStore()
+// router.beforeEach((to, from, next) => {
+//   const auth = useAuthStore()
 
-  if (to.meta.requiresAuth && !auth.token) {
-    return next('/login')
-  }
+//   if (to.meta.requiresAuth && !auth.token) {
+//     return next('/login')
+//   }
 
-  // Optional: block access to login/register if already logged in
-  if ((to.path === '/login' || to.path === '/register') && auth.token) {
-    return next('/dashboard')
-  }
+//   // Optional: block access to login/register if already logged in
+//   if ((to.path === '/login' || to.path === '/register') && auth.token) {
+//     return next('/dashboard')
+//   }
 
-  next()
-})
+//   next()
+// })
 
 export default router
