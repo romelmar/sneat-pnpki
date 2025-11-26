@@ -595,7 +595,7 @@ const Field = defineComponent({
 /* ---------- styles ---------- */
 const styles = {
   wrap: {
-    maxWidth: '860px',
+    // maxWidth: '860px',
     margin: '24px auto',
     padding: '0 16px',
     fontFamily: '-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif',
