@@ -54,7 +54,6 @@ import wallet from '@images/cards/wallet-info.png'
       </VRow>
     </VCol>
 
-    <!-- 👉 Total Revenue -->
     <VCol cols="12">
       <Pnpki />
     </VCol>

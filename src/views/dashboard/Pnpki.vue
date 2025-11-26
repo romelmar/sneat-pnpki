@@ -239,7 +239,6 @@ const balanceData = [
         :class="$vuetify.display.smAndUp ? 'border-e' : 'border-b'"
       >
         <VCardItem class="pb-0">
-          <VCardTitle>Total Revenue</VCardTitle>
           <SignWithP12 /> 
         </VCardItem>
       </VCol>
