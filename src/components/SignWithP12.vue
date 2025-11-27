@@ -316,9 +316,16 @@ async function onPrepareAndSign(){
     const finalJson = await finalRes.json()
     if (!finalRes.ok || !finalJson.ok) throw new Error('Finalize failed')
 
-    const direct = `http://127.0.0.1:8000/api/sign/download?path=${encodeURIComponent(finalJson.filePath)}&filename=${encodeURIComponent(finalJson.filename)}`
+    // const direct = `http://127.0.0.1:8000/api/sign/download?path=${encodeURIComponent(finalJson.filePath)}&filename=${encodeURIComponent(finalJson.filename)}`
 
-    downHref.value  = direct
+    // downHref.value  = direct
+
+    const direct = `http://127.0.0.1:8000/api/sign/download` +
+               `?path=${encodeURIComponent(finalJson.filePath)}` +
+               `&filename=${encodeURIComponent(finalJson.filename)}` +
+               `&v=${Date.now()}` // cache-bust just in case
+
+    downHref.value   = direct
     previewSrc.value = direct
 
     // convenience blob (desktop)
@@ -326,6 +333,9 @@ async function onPrepareAndSign(){
     if (dl.ok){
       const blob = await dl.blob()
 
+
+      // …and make it the new working document in the canvas:
+      setSignedPdf(blob, finalJson.filename || 'signed.pdf')
       downUrl.value = URL.createObjectURL(blob)
 
       // If you prefer blob preview instead:
@@ -421,6 +431,23 @@ function bytesToBin(u8){
   
   return s
 }
+
+// put near your other helpers in <script setup>
+function setSignedPdf(blob, filename = 'signed.pdf') {
+  // Clean up any previous blob url
+  if (pdfUrl.value) {
+    try { URL.revokeObjectURL(pdfUrl.value) } catch {}
+  }
+
+  // Make a File so Laravel's `file` validation is happy on the next round
+  const file = new File([blob], filename, { type: 'application/pdf' })
+
+  // Update the reactive sources the canvas uses
+  pdfFile.value = file                    // PdfPlacement will prefer this
+  pdfUrl.value  = URL.createObjectURL(file) // also keep a URL (e.g., for iframe preview)
+  previewSrc.value = pdfUrl.value         // show the new file in the preview, too
+}
+
 
 /* ---------- tiny Field component (inline) ---------- */
 const Field = defineComponent({
