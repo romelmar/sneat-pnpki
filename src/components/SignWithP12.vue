@@ -157,26 +157,6 @@
       >
         <a :href="downHref">Download (direct)</a>
       </div>
-      <div
-        v-if="downUrl"
-        style="margin-bottom: 8px;"
-      >
-        <a
-          :href="downUrl"
-          download="signed.pdf"
-        >Download (blob)</a>
-      </div>
-      <div
-        v-if="previewSrc"
-        style="margin-top: 8px;"
-      >
-        <iframe
-          title="PDF Preview"
-          :src="previewSrc"
-          style="width: 100%;height: 600px;border: 1px solid #e5e7eb;border-radius: 8px;background: #fff;"
-        />
-      </div>
-      <pre :style="styles.log">{{ logs.join('\n') }}</pre>
     </section>
   </div>
 </template>
