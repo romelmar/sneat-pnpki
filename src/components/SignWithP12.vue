@@ -438,7 +438,7 @@ const Field = defineComponent({
 
 /* ---------- styles ---------- */
 const styles = {
-  wrap: { maxWidth: '860px', margin: '24px auto', padding: '0 16px',
+  wrap: {  margin: '24px auto', padding: '0 16px',
     fontFamily: '-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif' },
   card: { background: '#fff', border: '1px solid #eee', borderRadius: '12px', padding: '16px',
     marginBottom: '16px', boxShadow: '0 1px 2px rgba(0,0,0,0.03)' },

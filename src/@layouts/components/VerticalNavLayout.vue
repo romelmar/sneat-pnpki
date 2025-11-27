@@ -1,6 +1,6 @@
 <script>
-import { useDisplay } from 'vuetify'
 import VerticalNav from '@layouts/components/VerticalNav.vue'
+import { useDisplay } from 'vuetify'
 
 export default defineComponent({
   setup(props, { slots }) {
@@ -56,7 +56,7 @@ export default defineComponent({
       }, [
         verticalNav,
         h('div', { class: 'layout-content-wrapper' }, [
-          navbar,
+      
           main,
           footer,
         ]),

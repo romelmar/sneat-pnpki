@@ -233,16 +233,9 @@ const balanceData = [
 <template>
   <VCard>
     <VRow no-gutters>
-      <VCol
-        cols="12"
-
-        :class="$vuetify.display.smAndUp ? 'border-e' : 'border-b'"
-      >
+      <VCol>
         <VCardItem class="pb-0">
-          <VCardTitle>Total Revenue</VCardTitle>
-          <p class="text-sm text-secondary px-6">
-            <SignWithP12 /> 
-          </p>
+          <SignWithP12 /> 
         </VCardItem>
       </VCol>
     </VRow>
