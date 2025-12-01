@@ -274,7 +274,8 @@ async function onPrepareAndSign(){
     fd.append('signer', signerRef.value.subjectCN)
     fd.append('tz', 'Asia/Manila')
 
-    const r = await fetch('http://127.0.0.1:8000/api/sign/prepare', { method: 'POST', body: fd })
+    const apiUrl = import.meta.env.VITE_API_URL
+    const r = await fetch(`${apiUrl}/api/sign/prepare`, { method: 'POST', body: fd })
     if (!r.ok) throw new Error('Prepare failed')
     const prep = await r.json()
 
@@ -287,7 +288,7 @@ async function onPrepareAndSign(){
 
     log('Finalizing…')
 
-    const finalRes = await fetch('http://127.0.0.1:8000/api/sign/complete', {
+    const finalRes = await fetch(`${apiUrl}/api/sign/complete`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ txId: prep.transactionId, cmsBase64 }),
@@ -296,11 +297,11 @@ async function onPrepareAndSign(){
     const finalJson = await finalRes.json()
     if (!finalRes.ok || !finalJson.ok) throw new Error('Finalize failed')
 
-    // const direct = `http://127.0.0.1:8000/api/sign/download?path=${encodeURIComponent(finalJson.filePath)}&filename=${encodeURIComponent(finalJson.filename)}`
+    // const direct = `http://172.31.102.115:8000/api/sign/download?path=${encodeURIComponent(finalJson.filePath)}&filename=${encodeURIComponent(finalJson.filename)}`
 
     // downHref.value  = direct
 
-    const direct = `http://127.0.0.1:8000/api/sign/download` +
+    const direct = `${apiUrl}/api/sign/download` +
                `?path=${encodeURIComponent(finalJson.filePath)}` +
                `&filename=${encodeURIComponent(finalJson.filename)}` +
                `&v=${Date.now()}` // cache-bust just in case
